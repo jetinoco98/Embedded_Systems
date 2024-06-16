@@ -32,9 +32,9 @@ void set_action(int command);
 void turn_off_all_leds();
 void toggle_led_group();
 
-void get_adc_values(float *voltage, float *distance);
-void write_distance_on_tx(float distance);
-void write_voltage_on_tx(float voltage);
+void get_adc_values(double *voltage, double *distance);
+void write_distance_on_tx(double distance);
+void write_voltage_on_tx(double voltage);
 
 
 #endif

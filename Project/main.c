@@ -6,10 +6,6 @@ TextCircularBuffer uart_tx;
 NumberCircularBuffer commands;
 NumberCircularBuffer times;
 
-// Test buffer (DELETE)
-char buffer_tx[128];
-int buffer_index = 0;
-
 // Global Control Variables
 int state = 0;
 int ongoing_tx = 0;
@@ -23,49 +19,35 @@ void __attribute__ ((__interrupt__ , __auto_psv__)) _T1Interrupt(void) {
     T1CONbits.TON = 0;  // Stop the timer
 
     state = 1 - state;      // Toggle STATE
-    turn_off_all_leds();    
+    turn_off_all_leds();    // LEDs are turned off
 }
 
 // Interrupt for STATE BUTTON (RE8)
 void __attribute__ ((__interrupt__ , __auto_psv__)) _INT1Interrupt(void) {
     IFS1bits.INT1IF = 0;    // Reset interrupt flag
     IEC0bits.T1IE = 1;      // Enable timer 1 interrupt
-    tmr_setup_period(TIMER1, 20, 1);  // Activate the timer1 for 20ms (for debouncing)
+    tmr_setup_period(TIMER1, 20, 1);  // For debouncing: 20ms timer
 }
 
 // Interrupt for UART TRANSMISSION on Circular Buffers
-void __attribute__ ((__interrupt__ , __auto_psv__)) _U1TXInterrupt(void){
+void __attribute__ ((__interrupt__ , __auto_psv__)) _U1TXInterrupt(void) {
     // Clear TX interrupt flag 
     IFS0bits.U1TXIF = 0;
     ongoing_tx = 1;
-    // Read the TX Circular Buffer
-    char current_char = read_text_buffer(&uart_tx);
-    if (current_char == '\0'){
-        IEC0bits.U1TXIE = 0;    // Disable further interrupts
-        ongoing_tx = 0;
-    }  
-    else{U1TXREG = current_char;}   // Write current character into transmit register  
+    // Loop to write multiple characters into the transmit register
+    while (!U1STAbits.UTXBF) {
+        // Read the TX Circular Buffer
+        char current_char = read_text_buffer(&uart_tx);
+        // If buffer is empty: read_text_buffer returns '\0'
+        if (current_char == '\0') {
+            IEC0bits.U1TXIE = 0;    // Disable further interrupts
+            ongoing_tx = 0;
+            return;
+        }  
+        // Write current character into transmit register  
+        U1TXREG = current_char;
+    }
 }
-
-// Interrupt for UART TRANSMISSION on [normal buffer]
-//void __attribute__ ((__interrupt__ , __auto_psv__)) _U1TXInterrupt(void){
-//    // Clear TX interrupt flag 
-//    IFS0bits.U1TXIF = 0;
-//    // Assign the current character from the buffer to a local variable
-//    char current_char = buffer_tx[buffer_index];
-//    // Exit interrupt if reached end of buffer
-//    if (current_char == '\0'){
-//        IEC0bits.U1TXIE = 0;    // Disable further interrupts
-//        buffer_index = 0;
-//        return;
-//    }
-//    else{
-//        // Write current character into transmit register  
-//        U1TXREG = current_char;
-//        // Shift the buffer index
-//        buffer_index++;
-//    }
-//}
 
 // Interrupt for UART RECEPTION
 void __attribute__((__interrupt__ , __auto_psv__)) _U1RXInterrupt(void){
@@ -78,9 +60,7 @@ void __attribute__((__interrupt__ , __auto_psv__)) _U1RXInterrupt(void){
 }
 
 
-
 int main(void) {
-
     // Inputs and Outputs: LEDs, IR, Vsense, Buttons
     io_setup();
     uart_setup();
@@ -93,14 +73,15 @@ int main(void) {
     init_number_buffer(&commands);
     init_number_buffer(&times);
     
-    // Local variables
-    float voltage = 0;
-    float distance = 100;
+    // Local data variables
+    double voltage = 0;
+    double distance = 100;
     int command = 0;
     int time = 0;
     
+    // Local control variables
     int obstacle_detected = 0;
-    int missed_deadline_counter = 0;
+    int deadline_led_timer = 0;
 
     // Setup: Loop frequency (1KHz -> 1ms)
     tmr_setup_period(TIMER2, 1, 0);
@@ -131,7 +112,6 @@ int main(void) {
         // Initialize the UART TX if no transmission is in progress.
         if (!ongoing_tx){initialize_uart_tx();}
         
-        
         //////////////////////////////////////
         // STATE 0: WAIT FOR START
         /////////////////////////////////////
@@ -142,7 +122,7 @@ int main(void) {
             // Robot is stationary
             move(STOP);
             // Any current action is cancelled
-            ongoing_action = 0; 
+            ongoing_action = 0;     
         }
 
         //////////////////////////////////////
@@ -150,25 +130,25 @@ int main(void) {
         /////////////////////////////////////
 
         if (state == 1){
+            // Blink LED A0
+            if(tmr_counter % 1000 == 0){LED1 = 1 - LED1;}
+            
             // Check for pending commands to perform an action
             if(!ongoing_action){
                 command = dequeue_number_buffer(&commands);
                 time = dequeue_number_buffer(&times);
-                // Start action bool (1) when a valid command is obtained
+                // Only a valid command can be obtained, otherwise is 0.
                 if(command > 0){ongoing_action = 1;}
             }
             
             // Obstacle influences execution of action
             if(ongoing_action){
                 // Set the PWMs depending on the presence of obstacle
-                if(!obstacle_detected){
-                    // Set up action with the command/time obtained from queue
-                    set_action(command); 
-                }
+                if(!obstacle_detected){set_action(command); }
                 else{move(STOP);}
                 // When time runs out, reset variables and STOP car
                 if (time <= 0){ongoing_action = 0; move(STOP);}
-                // Decrease time by 1ms on each iteration
+                // Decreases time by 1ms on each iteration
                 time--;
             }  
         }
@@ -178,10 +158,18 @@ int main(void) {
         /////////////////////////////////////
 
         // Wait for timer to reach desired frequency (1000Hz)
-        int ret = tmr_wait_period(TIMER2);
-        if (ret) {missed_deadline_counter++;}   // Testing purposes
+        int missed_deadline = tmr_wait_period(TIMER2);
         tmr_counter++;  // Increase counter by 1ms
-        if(tmr_counter == 1000){tmr_counter = 0;}   // Reset every second
+        if(tmr_counter >= 1000){tmr_counter = 0;}   // Reset every second
+        
+        // TESTING purposes: LED(G9)turns for 100ms on each missed deadline
+        if (missed_deadline) {
+            deadline_led_timer = 100;
+        }
+        if (deadline_led_timer > 0){
+            LED2 = 1;
+            deadline_led_timer--;
+        } else {LED2 = 0;}
         
     }
     
@@ -271,9 +259,9 @@ void turn_off_all_leds(){
     LED_BRAKES = 0;
 }
 
+
 void toggle_led_group(){
     LED1 = 1 - LED1;
-    LED2 = 1 - LED2;
     LED_LEFT = 1 - LED_LEFT;
     LED_RIGHT = 1 - LED_RIGHT;
 }
@@ -312,17 +300,17 @@ void initialize_uart_tx(){
 }
 
 
-void get_adc_values(float *voltage, float *distance){
+void get_adc_values(double *voltage, double *distance){
     // Read ADC: Automatic sampling & conversion
     int ADC_value_sensor = ADC1BUF1;    // Read the conversion result
     int ADC_value_bat = ADC1BUF0;       // Read the conversion result
 
     // Convert the result to battery voltage
-    float vsense = (float) ADC_value_bat * 3.3 / 1023;
+    double vsense = (double) ADC_value_bat * 3.3 / 1023;
     *voltage = vsense * 3;    // Due to voltage divider
 
     // Convert the result distance
-    float dist_voltage = (float) ADC_value_sensor * 3.3 / 1023;
+    double dist_voltage = (double) ADC_value_sensor * 3.3 / 1023;
     *distance = 2.34 - 
         4.74 * dist_voltage + 
         4.06 * pow(dist_voltage, 2) - 
@@ -331,7 +319,7 @@ void get_adc_values(float *voltage, float *distance){
 }
 
 
-void write_distance_on_tx(float distance){
+void write_distance_on_tx(double distance){
     char buffer_dist[11];
     sprintf(buffer_dist, "$MDIST,%.2f*", distance);
     // Write to UART TX Circular Buffer
@@ -342,7 +330,7 @@ void write_distance_on_tx(float distance){
 }
 
 
-void write_voltage_on_tx(float voltage){
+void write_voltage_on_tx(double voltage){
     char buffer_batt[11];
     sprintf(buffer_batt, "$MBATT,%.2f*", voltage);
     // Write to UART TX Circular Buffer

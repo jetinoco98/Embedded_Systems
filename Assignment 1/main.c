@@ -11,22 +11,22 @@ int array_index = 0;
 
 
 // Interrupt for UART TRANSMISSION
-void __attribute__ ((__interrupt__ , __auto_psv__)) _U1TXInterrupt(void){
+void __attribute__ ((__interrupt__ , __auto_psv__)) _U1TXInterrupt(void) {
     // Clear TX interrupt flag 
     IFS0bits.U1TXIF = 0;
-    // Assign the current character from the buffer to a local variable
-    char current_char = buffer_tx[buffer_index];
-    // Exit interrupt if reached end of buffer
-    if (current_char == '\0'){
-        IEC0bits.U1TXIE = 0;    // Disable further interrupts
-        buffer_index = 0;
-        return;
-    }
-    else{
+    
+    // Loop to write multiple characters into the transmit register
+    while (buffer_tx[buffer_index] != '\0' && !U1STAbits.UTXBF) {
         // Write current character into transmit register  
-        U1TXREG = current_char;
+        U1TXREG = buffer_tx[buffer_index];
         // Shift the buffer index
         buffer_index++;
+    }
+    
+    // If reached end of buffer, disable further interrupts
+    if (buffer_tx[buffer_index] == '\0') {
+        IEC0bits.U1TXIE = 0;    // Disable further interrupts
+        buffer_index = 0;
     }
 }
 

@@ -2,6 +2,7 @@
 #define	PWM_H
 
 #include "xc.h"                        // Include XC header for PIC microcontrollers
+#include "timer.h"
 #include <stdio.h>                     // Standard I/O library
 #include <stdbool.h>                   // Boolean type definitions
 
@@ -13,14 +14,15 @@
 #define LEFTF OC4R
 
 // Define macros for movement directions
+#define STOP 0
 #define FORWARD 1 
-#define BACKWARDS 2 
+#define LEFT 2
 #define RIGHT 3 
-#define LEFT 4 
-#define STOP 5
+#define BACKWARDS 4
 
 // Define macro for PWM frequency
-#define PWMFREQUENCY 7200
+#define PWMFREQUENCY 10 //KHz
+#define PWMPRESCALER 1 
 
 int move(int dir);
 void pwm_setup();

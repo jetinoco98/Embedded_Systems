@@ -1,9 +1,20 @@
 #include "pwm.h"
 
+volatile int pwmPeriod;
+
 // Function to move the robot in the specified direction with a given speed
 int move(int dir){
-    // Set speed at x% Duty Cycle
-    int speed = PWMFREQUENCY * 50;
+    int dutyCycle, speed;
+    int num = 80;   // Can be an input parameter of the function
+
+    // Check if num is within the valid range
+    if (num < 0 || num > 100){
+        // Error handling: invalid speed
+        return -1;  // Return an error code
+    } else {
+        dutyCycle = 40 + (int)(num * 0.6); // Calculate duty cycle from speed
+        speed = dutyCycle * pwmPeriod / 100;
+    }   
     
     switch(dir){
         case LEFT: 
@@ -30,12 +41,11 @@ int move(int dir){
             RIGHTF = 0;         // Set right forward to 0
             RIGHTB = speed;     // Set right backward to speed
             break;
-        case STOP: 
+        case STOP:
             LEFTF  = 0;         // Set left forward to 0
-            LEFTB  = 0;     // Set left backward to speed
+            LEFTB  = 0;     // Set left backward to 0
             RIGHTF = 0;         // Set right forward to 0
-            RIGHTB = 0;     // Set right backward to speed
-            break;
+            RIGHTB = 0;     // Set right backward to 0
     }
 }
 
@@ -66,13 +76,8 @@ void pwm_setup(){
     RPOR2bits.RP68R = 0b010011; // Map RD4 to OC4
     
     // Set PWM frequency
-    OC1RS = OC2RS = OC3RS = OC4RS = PWMFREQUENCY;
+    pwmPeriod = FCY_PROP/(PWMFREQUENCY*PWMPRESCALER) -1;
 
-    // Configure external interrupt
-    TRISEbits.TRISE8 = 1;       // Set RE8 as input
-    RPINR0bits.INT1R = 88;      // Map RE8 to INT1
+    OC1RS = OC2RS = OC3RS = OC4RS = pwmPeriod;
 
-    INTCON2bits.GIE = 1;        // Enable global interrupts
-    IFS1bits.INT1IF = 0;        // Clear INT1 interrupt flag
-    IEC1bits.INT1IE = 1;        // Enable INT1 interrupt
 }

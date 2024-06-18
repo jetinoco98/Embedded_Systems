@@ -1,3 +1,14 @@
+/******************************************************************************
+ * EMBEDDED SYSTEMS PROJECT
+ *
+ * Students:
+ *   - Josue Tinoco
+ *   - Kohei Tateyama
+ *   - Ami Quijano
+ *
+ * Date: June, 2024
+ ******************************************************************************/
+
 #include "main.h"
 
 // Buffers
@@ -7,9 +18,8 @@ NumberCircularBuffer commands;
 NumberCircularBuffer times;
 
 // Global Control Variables
-int state = 0;
-int ongoing_tx = 0;
-int ongoing_action = 0;
+volatile int state = 0;
+volatile int ongoing_tx = 0;
 
 
 // TIMER FOR INTERRUPT-1 DEBOUNCING
@@ -26,10 +36,10 @@ void __attribute__ ((__interrupt__ , __auto_psv__)) _T1Interrupt(void) {
 void __attribute__ ((__interrupt__ , __auto_psv__)) _INT1Interrupt(void) {
     IFS1bits.INT1IF = 0;    // Reset interrupt flag
     IEC0bits.T1IE = 1;      // Enable timer 1 interrupt
-    tmr_setup_period(TIMER1, 20, 1);  // For debouncing: 20ms timer
+    tmr_setup_period(TIMER1, 10, 1);  // For debouncing: 10ms timer
 }
 
-// Interrupt for UART TRANSMISSION on Circular Buffers
+// Interrupt for UART TRANSMISSION
 void __attribute__ ((__interrupt__ , __auto_psv__)) _U1TXInterrupt(void) {
     // Clear TX interrupt flag 
     IFS0bits.U1TXIF = 0;
@@ -61,13 +71,13 @@ void __attribute__((__interrupt__ , __auto_psv__)) _U1RXInterrupt(void){
 
 
 int main(void) {
-    // Inputs and Outputs: LEDs, IR, Vsense, Buttons
+    // Setup Functions
     io_setup();
     uart_setup();
     adc_setup();
     pwm_setup();
 
-    // Buffers initialization
+    // Buffer initialization
     init_text_buffer(&uart_rx);
     init_text_buffer(&uart_tx);
     init_number_buffer(&commands);
@@ -80,6 +90,7 @@ int main(void) {
     int time = 0;
     
     // Local control variables
+    int ongoing_action = 0;
     int obstacle_detected = 0;
     int deadline_led_timer = 0;
 
@@ -118,7 +129,9 @@ int main(void) {
 
         if(state == 0){
             // Toggle LEDs at 1Hz (every 1000ms)
+            IEC1bits.INT1IE = 0;    // Temporarely disable INT1 interrupt
             if (tmr_counter % 1000 == 0){toggle_led_group();}
+            IEC1bits.INT1IE = 1;    // Enable INT1 interrupt
             // Robot is stationary
             move(STOP);
             // Any current action is cancelled
@@ -131,7 +144,9 @@ int main(void) {
 
         if (state == 1){
             // Blink LED A0
+            IEC1bits.INT1IE = 0;    // Temporarely disable INT1 interrupt
             if(tmr_counter % 1000 == 0){LED1 = 1 - LED1;}
+            IEC1bits.INT1IE = 1;    // Enable INT1 interrupt
             
             // Check for pending commands to perform an action
             if(!ongoing_action){
@@ -144,8 +159,9 @@ int main(void) {
             // Obstacle influences execution of action
             if(ongoing_action){
                 // Set the PWMs depending on the presence of obstacle
-                if(!obstacle_detected){set_action(command); }
+                if(!obstacle_detected){move(command);}
                 else{move(STOP);}
+                
                 // When time runs out, reset variables and STOP car
                 if (time <= 0){ongoing_action = 0; move(STOP);}
                 // Decreases time by 1ms on each iteration
@@ -157,12 +173,12 @@ int main(void) {
         // END OF CONTROL LOOP
         /////////////////////////////////////
 
-        // Wait for timer to reach desired frequency (1000Hz)
+        // Wait for timer to reach desired frequency (1KHz)
         int missed_deadline = tmr_wait_period(TIMER2);
         tmr_counter++;  // Increase counter by 1ms
         if(tmr_counter >= 1000){tmr_counter = 0;}   // Reset every second
         
-        // TESTING purposes: LED(G9)turns for 100ms on each missed deadline
+        // TESTING purposes: LED(G9) turns on for 100ms on each missed deadline
         if (missed_deadline) {
             deadline_led_timer = 100;
         }
@@ -338,13 +354,4 @@ void write_voltage_on_tx(double voltage){
     for(i=0; i<12; i++){
         write_text_buffer(&uart_tx, buffer_batt[i]);
     }
-}
-
-
-void set_action(int command){
-    if (command == 1){move(FORWARD);}
-    else if (command == 2){move(LEFT);}
-    else if (command == 3){move(RIGHT);}
-    else if (command == 4){move(BACKWARDS);}
-    else {move(STOP);}
 }

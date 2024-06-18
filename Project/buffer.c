@@ -19,6 +19,7 @@ int is_text_buffer_empty(TextCircularBuffer *cb) {
 }
 
 int write_text_buffer(TextCircularBuffer *cb, char c) {
+    // When a character is written, the head shifts forward.
     if (!is_text_buffer_full(cb)) {
         cb->buffer[cb->head] = c;
         cb->head = (cb->head + 1) % BUFFER_SIZE_A;
@@ -30,6 +31,7 @@ int write_text_buffer(TextCircularBuffer *cb, char c) {
 
 char read_text_buffer(TextCircularBuffer *cb) {
     char c = '\0';
+    // When a character is read, the tail shifts forward.
     if (!is_text_buffer_empty(cb)) {
         c = cb->buffer[cb->tail];
         cb->tail = (cb->tail + 1) % BUFFER_SIZE_A;
@@ -95,7 +97,7 @@ int parse_uart_rx(TextCircularBuffer *cb, NumberCircularBuffer *commands,
         return 0;
     }  
 
-    // First character 
+    // Check for the presence of the first character on the tail
     char start = cb->buffer[cb->tail];
     if (start != '$'){
         cb->tail = (cb->tail + 1) % BUFFER_SIZE_A;
@@ -103,15 +105,15 @@ int parse_uart_rx(TextCircularBuffer *cb, NumberCircularBuffer *commands,
         return 0;
     }
 
-    // Reset if '*' is not found after limit
-    int limit = 16;
+    // Reset if '*' is not found after limit (which is the maximum length of our command)
+    int limit = COMMAND_MAX_LEN;
     if (cb->count >= limit){
         cb->tail = (cb->tail + cb->count) % BUFFER_SIZE_A;
         cb->count = 0;
         return 0;
     }
 
-    // Get the index of the character '*'
+    // Get the index of the final character '*'
     int found_match = 0;
     int start_index = cb->tail;
     int end_index = cb->tail;   // This will change on following loop
@@ -126,7 +128,7 @@ int parse_uart_rx(TextCircularBuffer *cb, NumberCircularBuffer *commands,
 
     if (!found_match){return 0;}
 
-    // Update COUNT value
+    // Update the COUNT parameter
     int length;
     if (cb->head > start_index){
         length = cb->head - start_index;
@@ -139,7 +141,7 @@ int parse_uart_rx(TextCircularBuffer *cb, NumberCircularBuffer *commands,
     // Update TAIL value: Becomes the end_index where * was found
     cb->tail = end_index;
 
-    // Obtain the substring from the tail (start_index) to the new tail location (end_index)
+    // Obtain the substring from the initial tail (start_index) to the new tail location (end_index)
     char raw_command[COMMAND_MAX_LEN];
     int rc_index = 0;
 
